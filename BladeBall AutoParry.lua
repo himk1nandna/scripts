@@ -83,8 +83,8 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 450, 0, 340)
-MainFrame.Position = UDim2.new(0.5, -225, 0.5, -170)
+MainFrame.Size = UDim2.new(0, 500, 0, 380)
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -190)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -621,11 +621,11 @@ end
 -- Мини GUI для отображения скорости шара
 local VelocityDisplay = Instance.new("Frame")
 VelocityDisplay.Name = "VelocityDisplay"
-VelocityDisplay.Size = UDim2.new(0, 250, 0, 100)
-VelocityDisplay.Position = UDim2.new(0, 20, 1, -120)
+VelocityDisplay.Size = UDim2.new(0, 300, 0, 120)
+VelocityDisplay.Position = UDim2.new(0, 20, 1, -140)
 VelocityDisplay.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 VelocityDisplay.BorderSizePixel = 0
-VelocityDisplay.Active = false
+VelocityDisplay.Active = true
 VelocityDisplay.Parent = ScreenGui
 
 local VelocityCorner = Instance.new("UICorner")
@@ -637,39 +637,69 @@ VelocityStroke.Color = Color3.fromRGB(80, 130, 255)
 VelocityStroke.Thickness = 2
 VelocityStroke.Parent = VelocityDisplay
 
--- Заголовок
+-- Заголовок (для перетаскивания)
 local VelocityTitle = Instance.new("TextLabel")
-VelocityTitle.Size = UDim2.new(1, 0, 0, 30)
-VelocityTitle.BackgroundTransparency = 1
+VelocityTitle.Size = UDim2.new(1, 0, 0, 35)
+VelocityTitle.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+VelocityTitle.BorderSizePixel = 0
 VelocityTitle.Text = "⚡ Ball Velocity"
 VelocityTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 VelocityTitle.TextSize = 16
 VelocityTitle.Font = Enum.Font.GothamBold
 VelocityTitle.Parent = VelocityDisplay
 
+local VelocityTitleCorner = Instance.new("UICorner")
+VelocityTitleCorner.CornerRadius = UDim.new(0, 10)
+VelocityTitleCorner.Parent = VelocityTitle
+
 -- Текущая скорость
 local CurrentVelocityLabel = Instance.new("TextLabel")
-CurrentVelocityLabel.Size = UDim2.new(1, -20, 0, 25)
-CurrentVelocityLabel.Position = UDim2.new(0, 10, 0, 35)
+CurrentVelocityLabel.Size = UDim2.new(1, -20, 0, 30)
+CurrentVelocityLabel.Position = UDim2.new(0, 10, 0, 45)
 CurrentVelocityLabel.BackgroundTransparency = 1
 CurrentVelocityLabel.Text = "Текущее: 0"
 CurrentVelocityLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-CurrentVelocityLabel.TextSize = 14
-CurrentVelocityLabel.Font = Enum.Font.Gotham
+CurrentVelocityLabel.TextSize = 16
+CurrentVelocityLabel.Font = Enum.Font.GothamBold
 CurrentVelocityLabel.TextXAlignment = Enum.TextXAlignment.Left
 CurrentVelocityLabel.Parent = VelocityDisplay
 
 -- Пиковая скорость
 local PeakVelocityLabel = Instance.new("TextLabel")
-PeakVelocityLabel.Size = UDim2.new(1, -20, 0, 25)
-PeakVelocityLabel.Position = UDim2.new(0, 10, 0, 65)
+PeakVelocityLabel.Size = UDim2.new(1, -20, 0, 30)
+PeakVelocityLabel.Position = UDim2.new(0, 10, 0, 80)
 PeakVelocityLabel.BackgroundTransparency = 1
 PeakVelocityLabel.Text = "Пиковое: 0"
 PeakVelocityLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-PeakVelocityLabel.TextSize = 14
-PeakVelocityLabel.Font = Enum.Font.Gotham
+PeakVelocityLabel.TextSize = 16
+PeakVelocityLabel.Font = Enum.Font.GothamBold
 PeakVelocityLabel.TextXAlignment = Enum.TextXAlignment.Left
 PeakVelocityLabel.Parent = VelocityDisplay
+
+-- Система перетаскивания Velocity Display
+local draggingVelocity = false
+local dragStartVel = nil
+local startPosVel = nil
+
+VelocityTitle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingVelocity = true
+        dragStartVel = input.Position
+        startPosVel = VelocityDisplay.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingVelocity and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStartVel
+        VelocityDisplay.Position = UDim2.new(
+            startPosVel.X.Scale,
+            startPosVel.X.Offset + delta.X,
+            startPosVel.Y.Scale,
+            startPosVel.Y.Offset + delta.Y
+        )
+    end
+end)
 
 -- Функция симуляции нажатия
 local LastParryTime = 0
@@ -1834,7 +1864,7 @@ UserInputService.InputEnded:Connect(function(input)
                 
                 task.wait(0.05)
                 
-                MainFrame.Size = UDim2.new(0, 450, 0, 340)
+                MainFrame.Size = UDim2.new(0, 500, 0, 380)
                 MainFrame.BackgroundTransparency = 0
                 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
                 
@@ -1853,6 +1883,9 @@ UserInputService.InputEnded:Connect(function(input)
         end
         if draggingGUI then
             draggingGUI = false
+        end
+        if draggingVelocity then
+            draggingVelocity = false
         end
     end
 end)
