@@ -1,0 +1,303 @@
+-- [[ CUT TREES ]] --
+-- Features: WalkSpeed Multiplier, Autonomous Chest Hunter, Global Map-Wide Farm
+-- Optimized: Stable Burst (Max 3), Lean UI, Persistent Speed Enforcement
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- [[ SETTINGS & STATE ]] --
+_G.AutoFarm = false
+_G.FarmMode = "Click" 
+_G.AutoCollectChests = false
+_G.BurstLevel = 3
+_G.WalkSpeedValue = 16 
+
+_G.ChestFilters = {
+    Normal = true,
+    Huge = true,
+    Giant = true,
+    Special = true
+}
+
+local CLICK_SPEED = 0.12
+local REMOTE_STABILIZER = 0.05
+local MAX_CONCURRENT_TREES = 15
+
+local Connections = {}
+local TreeRemote = ReplicatedStorage:WaitForChild("Signal"):WaitForChild("Tree")
+local ChestRemote = ReplicatedStorage:WaitForChild("Signal"):WaitForChild("Chest")
+
+-- [[ HELPERS ]] --
+local function GetChestType(chest)
+    local name = chest.Name
+    if string.find(name, "Giant") then return "Giant" end
+    if string.find(name, "Huge") then return "Huge" end
+    if string.find(name, "Chest") then return "Normal" end
+    return "Special"
+end
+
+local function GetClosestTarget()
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+
+    if _G.AutoCollectChests then
+        local chestFolder = workspace:FindFirstChild("ChestFolder")
+        if chestFolder then
+            local closestChest = nil
+            local chestDist = math.huge
+            for _, chest in ipairs(chestFolder:GetChildren()) do
+                local pos = (chest:IsA("Model") and chest:GetPivot().Position) or (chest:IsA("BasePart") and chest.Position)
+                if pos then
+                    local d = (root.Position - pos).Magnitude
+                    local cType = GetChestType(chest)
+                    if _G.ChestFilters[cType] and d < chestDist then
+                        chestDist = d
+                        closestChest = chest
+                    end
+                end
+            end
+            if closestChest then return closestChest end
+        end
+    end
+    return nil
+end
+
+-- [[ UNLOAD ]] --
+local function Unload()
+    _G.AutoFarm = false
+    _G.AutoCollectChests = false
+    _G.WalkSpeedValue = 16
+    for _, conn in ipairs(Connections) do
+        if conn and conn.Disconnect then conn:Disconnect() end
+    end
+    local gui = CoreGui:FindFirstChild("CutTreesGUI")
+    if gui then gui:Destroy() end
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+    if hum then 
+        hum.WalkSpeed = 16
+        hum:Move(Vector3.new(0,0,0)) 
+    end
+end
+
+-- [[ PERSISTENT SPEED LOOP ]] --
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    local character = LocalPlayer.Character
+    local hum = character and character:FindFirstChild("Humanoid")
+    if hum then
+        hum.WalkSpeed = _G.WalkSpeedValue
+    end
+end))
+
+-- [[ MOVEMENT LOOP ]] --
+task.spawn(function()
+    while true do
+        local character = LocalPlayer.Character
+        local hum = character and character:FindFirstChild("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if hum and root and _G.AutoCollectChests then
+            local target = GetClosestTarget()
+            if target then
+                local pos = (target:IsA("Model") and target:GetPivot().Position) or target.Position
+                hum:MoveTo(pos)
+                
+                local dist = (root.Position - pos).Magnitude
+                if dist < 8 then
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                    task.wait(0.1)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                    task.wait(0.2)
+                end
+            else
+                hum:Move(Vector3.new(0,0,0))
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- [[ ULTRA BURST FARM ]] --
+task.spawn(function()
+    while true do
+        if _G.AutoFarm then
+            local character = LocalPlayer.Character
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            if root and _G.AutoFarm then
+                if _G.FarmMode == "Click" then
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                    task.wait(0.01)
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                    task.wait(CLICK_SPEED)
+                else
+                    local treesFolder = workspace:FindFirstChild("TreesFolder")
+                    if treesFolder then
+                        local rootPos = root.Position
+                        local potentialTargets = {}
+                        for _, tree in ipairs(treesFolder:GetChildren()) do
+                            local hitpart = tree:FindFirstChild("Hitpart") or tree.PrimaryPart
+                            if hitpart then
+                                table.insert(potentialTargets, {tree = tree, dist = (rootPos - hitpart.Position).Magnitude})
+                            end
+                        end
+                        table.sort(potentialTargets, function(a, b) return a.dist < b.dist end)
+                        
+                        for i = 1, math.min(#potentialTargets, MAX_CONCURRENT_TREES) do
+                            if not _G.AutoFarm or _G.FarmMode ~= "Remote" then break end
+                            local tree = potentialTargets[i].tree
+                            for b = 1, math.min(_G.BurstLevel, 3) do
+                                task.spawn(function() TreeRemote:FireServer("damage", tree.Name) end)
+                            end
+                        end
+                    end
+                    task.wait(REMOTE_STABILIZER)
+                end
+            end
+        else
+            task.wait(0.2)
+        end
+    end
+end)
+
+-- [[ UI SYSTEM (Clean Title) ]] --
+local gui = Instance.new("ScreenGui", CoreGui)
+gui.Name = "CutTreesGUI"
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 320, 0, 480)
+main.Position = UDim2.new(0.05, 0, 0.2, 0)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+main.Active = true
+main.Draggable = true
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 15)
+
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1, 0, 0, 60)
+title.Text = "CUT TREES"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 22
+title.TextColor3 = Color3.new(1, 1, 1)
+title.BackgroundColor3 = Color3.fromRGB(40, 80, 80)
+Instance.new("UICorner", title).CornerRadius = UDim.new(0, 15)
+
+local filtersFrame = Instance.new("Frame", main)
+filtersFrame.Size = UDim2.new(0, 260, 0, 260)
+filtersFrame.Position = UDim2.new(1, 10, 0, 0)
+filtersFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+filtersFrame.Visible = false
+Instance.new("UICorner", filtersFrame).CornerRadius = UDim.new(0, 12)
+
+local function CreateToggle(parent, name, pos, callback, default)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(0.92, 0, 0, 45)
+    btn.Position = pos
+    btn.Text = name .. ": " .. (default and "ON" or "OFF")
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 16
+    btn.BackgroundColor3 = default and Color3.fromRGB(70, 160, 70) or Color3.fromRGB(50, 50, 70)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+    local state = default or false
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.Text = name .. ": " .. (state and "ON" or "OFF")
+        btn.BackgroundColor3 = state and Color3.fromRGB(70, 160, 70) or Color3.fromRGB(50, 50, 70)
+        callback(state)
+    end)
+    return btn
+end
+
+CreateToggle(main, "AUTO FARM (Trees)", UDim2.new(0.04, 0, 0, 75), function(s) _G.AutoFarm = s end)
+local modeBtn = Instance.new("TextButton", main)
+modeBtn.Size = UDim2.new(0.92, 0, 0, 48)
+modeBtn.Position = UDim2.new(0.04, 0, 0, 130)
+modeBtn.Text = "MODE: " .. (_G.FarmMode == "Click" and "REAL CLICK" or "ULTRA BURST")
+modeBtn.Font = Enum.Font.GothamBold
+modeBtn.TextSize = 16
+modeBtn.BackgroundColor3 = _G.FarmMode == "Click" and Color3.fromRGB(60, 120, 220) or Color3.fromRGB(220, 50, 50)
+modeBtn.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", modeBtn).CornerRadius = UDim.new(0, 10)
+modeBtn.MouseButton1Click:Connect(function()
+    _G.FarmMode = (_G.FarmMode == "Click") and "Remote" or "Click"
+    modeBtn.BackgroundColor3 = (_G.FarmMode == "Click") and Color3.fromRGB(60, 120, 220) or Color3.fromRGB(220, 50, 50)
+    modeBtn.Text = "MODE: " .. (_G.FarmMode == "Click" and "REAL CLICK" or "ULTRA BURST")
+end)
+
+CreateToggle(main, "CHEST HUNTER (Autonomous)", UDim2.new(0.04, 0, 0, 190), function(s) _G.AutoCollectChests = s end)
+
+local filterMenuBtn = Instance.new("TextButton", main)
+filterMenuBtn.Size = UDim2.new(0.92, 0, 0, 35)
+filterMenuBtn.Position = UDim2.new(0.04, 0, 0, 245)
+filterMenuBtn.Text = "CHEST FILTERS >>"
+filterMenuBtn.Font = Enum.Font.GothamBold
+filterMenuBtn.TextSize = 14
+filterMenuBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 180)
+filterMenuBtn.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", filterMenuBtn).CornerRadius = UDim.new(0, 10)
+filterMenuBtn.MouseButton1Click:Connect(function() filtersFrame.Visible = not filtersFrame.Visible end)
+
+local function CreateSlider(name, pos, min, max, default, callback)
+    local frame = Instance.new("Frame", main)
+    frame.Size = UDim2.new(0.92, 0, 0, 55)
+    frame.Position = pos
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 0.4, 0)
+    label.Text = name .. ": " .. default
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 13
+    label.BackgroundTransparency = 1
+    local bar = Instance.new("Frame", frame)
+    bar.Size = UDim2.new(0.85, 0, 0, 6)
+    bar.Position = UDim2.new(0.075, 0, 0.7, 0)
+    bar.BackgroundColor3 = Color3.fromRGB(65, 65, 90)
+    local fill = Instance.new("Frame", bar)
+    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(110, 110, 255)
+    local knob = Instance.new("TextButton", bar)
+    knob.Size = UDim2.new(0, 18, 0, 20)
+    knob.Position = UDim2.new((default - min) / (max - min), -9, 0.5, -10)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.Text = ""
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    local dragging = false
+    knob.MouseButton1Down:Connect(function() dragging = true end)
+    UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+    RunService.RenderStepped:Connect(function() 
+        if dragging then 
+            local input = UserInputService:GetMouseLocation()
+            local percent = math.clamp((input.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+            local value = math.floor(min + (max - min) * percent)
+            knob.Position = UDim2.new(percent, -9, 0.5, -10)
+            fill.Size = UDim2.new(percent, 0, 1, 0)
+            label.Text = name .. ": " .. value
+            callback(value)
+        end 
+    end)
+end
+
+CreateSlider("Move Speed", UDim2.new(0.04, 0, 0, 290), 16, 150, 32, function(v) _G.WalkSpeedValue = v end)
+CreateSlider("Burst Level (Max 3)", UDim2.new(0.04, 0, 0, 355), 1, 3, 3, function(v) _G.BurstLevel = v end)
+
+CreateToggle(filtersFrame, "Normal Chests", UDim2.new(0.04, 0, 0, 55), function(s) _G.ChestFilters.Normal = s end, true)
+CreateToggle(filtersFrame, "Huge Chests", UDim2.new(0.04, 0, 0, 105), function(s) _G.ChestFilters.Huge = s end, true)
+CreateToggle(filtersFrame, "Giant Chests", UDim2.new(0.04, 0, 0, 155), function(s) _G.ChestFilters.Giant = s end, true)
+CreateToggle(filtersFrame, "Special Chests", UDim2.new(0.04, 0, 0, 205), function(s) _G.ChestFilters.Special = s end, true)
+
+local ub = Instance.new("TextButton", main)
+ub.Size = UDim2.new(0.92, 0, 0, 40)
+ub.Position = UDim2.new(0.04, 1, -50)
+ub.Text = "UNLOAD"
+ub.Font = Enum.Font.GothamBold
+ub.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+ub.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", ub).CornerRadius = UDim.new(0, 12)
+ub.MouseButton1Click:Connect(Unload)
+
+print("CUT TREES Loaded")
